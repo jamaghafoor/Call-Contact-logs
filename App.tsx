@@ -270,7 +270,7 @@ function SyncStatusMessage({
         <Text style={styles.cardTitle}>{title}</Text>
         <Text style={styles.cardSubtitle}>{subtitle}</Text>
 
-        <View style={styles.statsRow}>
+        {/* <View style={styles.statsRow}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Total {unit}</Text>
             <Text style={styles.statNumber}>{count}</Text>
@@ -279,10 +279,10 @@ function SyncStatusMessage({
             <Text style={styles.statLabel}>Server Status</Text>
             <Text style={[styles.statNumber, {color: '#4CAF50'}]}>Uploaded</Text>
           </View>
-        </View>
+        </View> */}
 
         <View style={styles.divider} />
-
+{/* 
         <View style={styles.detailList}>
           {syncedAt !== '' && (
             <View style={styles.detailRow}>
@@ -304,7 +304,7 @@ function SyncStatusMessage({
             <Text style={styles.detailLabel}>Destination</Text>
             <Text style={styles.detailValue}>MongoDB (HelpBot)</Text>
           </View>
-        </View>
+        </View> */}
 
         <TouchableOpacity
           style={styles.resyncButton}
@@ -627,7 +627,7 @@ function AppContent() {
         ) : contactsSynced ? (
           <SyncStatusMessage
             title="Contacts Uploaded Successfully"
-            subtitle="Your contacts list was fetched from this phone and uploaded to the server."
+            subtitle="Your contacts list was fetched and uploaded to the server."
             count={contactsCount}
             unit="Contacts"
             syncedAt={contactsSyncedAt}
@@ -659,7 +659,7 @@ function AppContent() {
       ) : callLogSynced ? (
         <SyncStatusMessage
           title="Call History Uploaded Successfully"
-          subtitle="Your call history was fetched from this phone and uploaded to the server."
+          subtitle="Your call history was fetched and uploaded to the server."
           count={callLogCount}
           unit="Calls"
           syncedAt={callLogSyncedAt}
