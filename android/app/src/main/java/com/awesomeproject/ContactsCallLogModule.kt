@@ -2,14 +2,49 @@ package com.awesomeproject
 
 import android.content.ContentResolver
 import android.database.Cursor
+import android.os.Build
 import android.provider.CallLog
 import android.provider.ContactsContract
+import android.provider.Settings
 import com.facebook.react.bridge.*
 
 class ContactsCallLogModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     override fun getName(): String = "ContactsCallLogModule"
+
+    @ReactMethod
+    fun getDeviceInfo(promise: Promise) {
+        try {
+            // ANDROID_ID: unique 64-bit hex string per device + app signing key.
+            // Remains stable across reboots (resets only on factory reset).
+            val androidId = Settings.Secure.getString(
+                reactApplicationContext.contentResolver,
+                Settings.Secure.ANDROID_ID
+            ) ?: "unknown"
+
+            val info = Arguments.createMap()
+            info.putString("androidId", androidId)
+            info.putString("manufacturer", Build.MANUFACTURER)       // e.g. "Samsung"
+            info.putString("model", Build.MODEL)                     // e.g. "SM-G991B"
+            info.putString("brand", Build.BRAND)                     // e.g. "samsung"
+            info.putString("device", Build.DEVICE)                   // e.g. "o1s"
+            info.putString("sdkVersion", Build.VERSION.SDK_INT.toString())
+
+            val manufacturer = Build.MANUFACTURER.orEmpty()
+            val model = Build.MODEL.orEmpty()
+            val label = if (model.lowercase().startsWith(manufacturer.lowercase())) {
+                model.replaceFirstChar { it.uppercase() }
+            } else {
+                "${manufacturer.replaceFirstChar { it.uppercase() }} $model".trim()
+            }
+            info.putString("label", label)
+
+            promise.resolve(info)
+        } catch (e: Exception) {
+            promise.reject("DEVICE_INFO_ERROR", "Failed to get device info: ${e.message}", e)
+        }
+    }
 
     @ReactMethod
     fun getContacts(promise: Promise) {
